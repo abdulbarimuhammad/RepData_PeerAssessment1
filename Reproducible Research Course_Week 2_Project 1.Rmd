@@ -1,0 +1,258 @@
+---
+output: 
+  html_document: 
+    keep_md: yes
+---
+Reproducible Research Course_Week 2_Project 1
+============================================================================
+Abdul Bari Muhammad
+
+## Introduction
+
+This repository contains code to address questions for the project-1 assigned during week-2 of the *Reproducible Research course* from Johns Hopkins on Coursera. The data for this assignment can be downloaded from the website link below:
+
+**Dataset Link:**
+https://d396qusza40orc.cloudfront.net/repdata%2Fdata%2Factivity.zip
+
+### Assignment:
+
+Write a report that answers the questions below:
+
+1. Code for reading in the dataset and/or processing the data
+2. Histogram of the total number of steps taken each day
+3. Mean and median number of steps taken each day
+4. Time series plot of the average number of steps taken
+5. The 5-minute interval that, on average, contains the maximum number of steps
+6. Code to describe and show a strategy for imputing missing data
+7. Number of steps taken each day after missing values are imputed
+    + 7a. Histogram of the total number of steps taken each day after missing values are imputed
+    + 7b. Mean and median of total number of steps taken per day after missing values are imputed.
+8. Panel plot comparing the average number of steps taken per 5-minute interval across weekdays and weekends
+9. All of the R code needed to reproduce the results (numbers, plots, etc.) in the report
+
+**Setting global options for markdown**
+```{r setoptions, echo=TRUE}
+library(knitr)
+opts_chunk$set(echo = TRUE, results = "asis", fig.show = "asis", fig.dim = c(5,5), message = FALSE, warning = FALSE, fig.path = "figures/", dev = "png")
+```
+
+## 1. Loading and preprocessing the data
+
+```{r readdata}
+# Download data file, unzip, and read the "activity.csv" file
+
+path <- getwd()
+url <- "https://d396qusza40orc.cloudfront.net/repdata%2Fdata%2Factivity.zip"
+download.file(url, file.path(path, "ActivityData.zip"))
+unzip("ActivityData.zip")
+
+# Load packages
+library(data.table)
+
+# Read "activity.csv" file
+Activity <- data.table::fread("activity.csv")
+```
+
+## 2. Histogram of the total number of steps taken each day
+
+```{r historiginal-DailyTotalSteps}
+# Load packages
+
+library(data.table)
+library(dplyr)
+
+# Group by date and summarize for daily total steps
+
+Activity <- data.table::fread("activity.csv")
+kable(head(Activity), format = "markdown", caption = "Original Activity Data")
+DailyActivity <- group_by(Activity, date)
+DailyActivity <- summarize(DailyActivity, Dailysum = sum(steps, na.rm = TRUE))
+kable(head(DailyActivity), format = "markdown", caption = "Total daily steps grouped by date")
+
+# Plot histogram of DailyTotalSteps
+
+hist(DailyActivity$Dailysum,
+	col = "red", main = "Total Daily Steps",
+	xlab = "Total number of steps taken each day",
+	ylab = "Frequency of Observations",
+	ylim = c(0, 30))
+dev.off()
+```
+
+## 3. Mean and median number of steps taken each day
+
+```{r meanmedianoriginal}
+# Load packages
+
+library(data.table)
+library(dplyr)
+
+# Read "activity.csv" file
+# Group by date and summarize for daily total steps
+# Compute mean and median daily total steps
+
+Activity <- data.table::fread("activity.csv")
+DailyActivity <- group_by(Activity, date)
+DailyActivity <- summarize(DailyActivity, Dailysum = sum(steps, na.rm = TRUE))
+kable(head(DailyActivity), format = "markdown", caption = "Total daily steps grouped by date")
+Meandaily <- mean(DailyActivity$Dailysum)
+Mediandaily <- median(DailyActivity$Dailysum)
+MeanMedian <- data.table(Meandaily, Mediandaily)
+kable(MeanMedian, format = "markdown",
+        caption = "The mean and median number of steps taken daily")
+```
+
+-*The mean and median number of steps taken daily are `r Meandaily` and `r Mediandaily`, respectively*
+
+## 4. Time series plot of the average number of steps taken
+
+```{r AverageDailyPattern-original}
+# Load packages
+
+library(data.table)
+library(dplyr)
+library(ggplot2)
+
+# Read "activity.csv" file
+# Group by interval and summarize for Average steps per interval
+
+Activity <- data.table::fread("activity.csv")
+IntervalActivity <- group_by(Activity, interval)
+Averagepattern <- summarize(IntervalActivity, Avgsteps = mean(steps, na.rm= TRUE))
+kable(head(Averagepattern), format = "markdown", caption = "Mean steps grouped by interval")
+
+# Time series plot of average number of steps taken vs Time Interval
+
+qplot(interval, Avgsteps, data = Averagepattern,
+	geom = "line",
+	main = "Average Daily Activity Pattern",
+	xlab= "Time interval (min)", ylab = "Average daily steps",
+	xlim = c(0, 2500), ylim = c(0,250))
+dev.off()
+```
+
+## 5. The 5-minute interval that, on average, contains the maximum number of steps
+
+```{r maxstepinterval}
+# 5-min interval that contains the maximum number of steps
+
+Maxstepinterval <- filter(Averagepattern, Avgsteps == max(Avgsteps))
+Maxstepinterval$interval
+```
+
+-**The 5-min interval that contains the maximum number of steps is `r Maxstepinterval$interval`**
+
+## 6. Code to describe and show a strategy for imputing missing data
+
+- *summary(Activity) indicates that there are 2304 missing values from steps*
+- *aggr plot indicates that 2304 (13%) of 17568 values for steps are missing*
+- *matrixplot indicates values are missing from earlier dates*
+- *statsNA(Activity$steps) gives stats of missing values*
+- *ggplot_na_distribution() marks the missing values at specific missing intervals*
+- *Activitycomplete data set created by imputing values to missing values using imputeTS::na_kalman method*
+- *Run confirmatory statistics to ensure proper imputation*
+
+```{r Impute}
+# Load packages
+
+library(data.table)
+library(dplyr)
+library(VIM)
+library(imputeTS)
+library(ggplot2)
+
+# Read "activity.csv" file
+# Identify and visualize missing values
+
+Activity <- data.table::fread("activity.csv")
+kable(summary(Activity), format = "markdown", caption = "Summary statistics of original data showing missing values for steps")
+aggr(Activity, number = TRUE, sortVars = TRUE, varheight = TRUE)
+matrixplot(Activity, sortby = (c("steps")))
+statsNAoriginal <- statsNA(Activity$steps)
+ggplot_na_distribution(Activity$steps)
+
+# Imputing missing values and rerun summary and stats
+
+Activitycomplete <- na_kalman(Activity)
+kable(summary(Activitycomplete), format = "markdown", caption = "Summary statistics of Imputed data showing NO missing values for steps")
+statsNAcomplete <- statsNA(Activitycomplete$steps)
+ggplot_na_distribution(Activitycomplete$steps)
+aggr(Activitycomplete, number = TRUE, sortVars = TRUE, varheight = TRUE)
+matrixplot(Activitycomplete, sortby = (c("steps")))
+```
+
+## 7. Number of steps taken each day after missing values are imputed
+
+#### + 7a. Histogram of the total number of steps taken each day after missing values are imputed
+
+```{r histimputed-CompleteDailyTotalSteps}
+# Group by date and summarize for daily total steps for imputed Activitycomplete dataset
+
+DailyActivitycomplete <- group_by(Activitycomplete, date)
+DailyActivitycomplete <- summarize(DailyActivitycomplete, Dailysumcomplete = sum(steps, na.rm = TRUE))
+
+# Plot histogram of DailyTotalSteps for Activitycomplete dataset
+
+hist(DailyActivitycomplete$Dailysumcomplete,
+	col = "red", main = "Total Daily Steps for Imputed Activitycomplete dataset",
+	xlab = "Total number of steps taken each day",
+	ylab = "Frequency of Observations",
+	ylim = c(0, 30))
+dev.off()
+```
+
+#### + 7b. Mean and median of total number of steps taken per day after missing values are imputed.
+
+```{r meanmedianimputed}
+# Compute mean and median daily total steps for Activitycomplete dataset
+
+DailyActivitycomplete <- group_by(Activitycomplete, date)
+DailyActivitycomplete <- summarize(DailyActivitycomplete, Dailysumcomplete = sum(steps, na.rm = TRUE))
+Meandailycomplete <- mean(DailyActivitycomplete$Dailysumcomplete)
+Mediandailycomplete <- median(DailyActivitycomplete$Dailysumcomplete)
+MeanMediancomplete <- data.table(Meandailycomplete, Mediandailycomplete)
+kable(MeanMediancomplete, format = "markdown",
+        caption = "The mean and median number of steps taken daily for the complete datset after imputation")
+```
+
+- **The mean and median number of steps taken daily after imputing values to missing data are `r Meandailycomplete` and `r Mediandailycomplete`, respectively**
+
+- *Since values were imputed using the Kalman Smoothing method, no particular differences were noted in the mean and median number of steps taken daily.*
+
+## 8. Panel plot comparing the average number of steps taken per 5-minute interval across weekdays and weekends
+
+```{r AvgWdayWkndpattern}
+
+# Load packages
+
+library(data.table)
+library(dplyr)
+library(lubridate)
+library(stringr)
+library(ggplot2)
+
+# Read "activity.csv" file
+# Mutate to add day factor and daytype factor
+# Aggregate values for average daily activity across days for particular time-interval
+
+Activity <- data.table::fread("activity.csv")
+Activityday <- mutate(Activity, day = weekdays(date))
+Activityday <- mutate(Activityday, daytype = 
+			if_else(str_detect(day, "Saturday|Sunday") == TRUE,
+				 "Weekend", "Weekday"))
+kable(head(Activityday), format = "markdown", caption = "Table showing mutated Activity dataset with day name and day type")
+Averagepattern <- aggregate(steps ~ interval + daytype, Activityday, mean, na.rm= TRUE)
+kable(head(Averagepattern), format = "markdown", caption = "Mean steps grouped by interval and daytype")
+
+# Facet plot of x= "Time interval (min)", y= "Average daily steps"
+
+ggplot(Averagepattern, aes(interval, steps)) + 
+geom_line(aes(color = daytype)) + 
+facet_wrap(vars(daytype), nrow=2) + 
+ggtitle ("Average Daily Activity Pattern") + 
+labs(x= "Time interval (min)", y= "Average daily steps")
+dev.off()
+```
+
+
+*End of Document*
